@@ -1,0 +1,5 @@
+funasr==1.2.2
+MNN==3.0.2
+numpy==2.2.1
+PyYAML==6.0.2
+yaspin==3.1.0
