@@ -1,4 +1,7 @@
+![mnn-asr](resource/logo.png)
+
 # mnn-asr
+[![License](https://img.shields.io/github/license/wangzhaode/mnn-asr)](LICENSE)
 
 ## 模型导出
 ```sh
@@ -13,7 +16,7 @@ python asrexport.py --path ./paraformer
 
 ## 编译
 ```sh
-mkdir build
+mkdir buildc
 cd build
 make -j16
 ```
