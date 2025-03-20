@@ -412,6 +412,26 @@ void Asr::online_recognize(const std::string &wav_file) {
     auto speech = audio_file.first;
     int sample_rate = audio_file.second;
     auto speech_length = speech->getInfo()->size;
+    auto speech_ptr = speech->readMap<int>();
+    int start = 0;
+    int end = speech_length - 1;
+
+    while(start < speech_length)
+    {
+        if (speech_ptr[start] != 0) {
+            break;
+        }
+        start++;
+    }
+
+    while(end >= 0)
+    {
+        if (speech_ptr[end] != 0) {
+            break;
+        }
+        end--;
+    }
+    speech_length = end - start + 1;
 #endif
     int chunk_size = chunk_size_[1] * 960;
     int steps = DIV_UP(speech_length, chunk_size);
@@ -424,7 +444,7 @@ void Asr::online_recognize(const std::string &wav_file) {
             deal_size = speech_length - i * chunk_size;
         }
         // std::vector<float> chunk(speech.begin() + i * chunk_size, speech.begin() + i * chunk_size + deal_size);
-        auto chunk = _Slice(speech, _var<int>({i * chunk_size}, {1}), _var<int>({deal_size}, {1}));
+        auto chunk = _Slice(speech, _var<int>({i * chunk_size + start}, {1}), _var<int>({deal_size}, {1}));
         auto res = recognize(chunk);
         std::cout << "preds: " << res << std::endl;
         total += res;
