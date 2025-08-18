@@ -43,7 +43,7 @@ class Paraformer:
 
     def __init__(self, args):
         self.model_path = args.path
-        self.dst_path = args.dst_path
+        self.dst_path = os.path.abspath(args.dst_path)
         if not os.path.exists(self.dst_path):
             os.makedirs(self.dst_path)
         if os.path.exists(args.mnnconvert):
@@ -91,8 +91,14 @@ class Paraformer:
 
     @spinner_run("convert onnx to mnn")
     def convert_to_mnn(self, encoder_model_file, decoder_model_file):
-        self.convert(encoder_model_file, f'{self.dst_path}/encoder.mnn')
-        self.convert(decoder_model_file, f'{self.dst_path}/decoder.mnn')
+        encoder_path = f'{self.dst_path}/encoder.mnn'
+        decoder_path = f'{self.dst_path}/decoder.mnn'
+
+        self.convert(encoder_model_file, encoder_path)
+        self.convert(decoder_model_file, decoder_path)
+
+        print(f'{GREEN}[SAVED]{RESET} {encoder_path}')
+        print(f'{GREEN}[SAVED]{RESET} {decoder_path}')
         return self.dst_path
 
     def export_model(self):
@@ -151,7 +157,7 @@ class Paraformer:
             asr_config['frame_shift_ms'] = data["frontend_conf"]["frame_shift"]
             asr_config['frame_length_ms'] = data["frontend_conf"]["frame_length"]
             asr_config['num_bins'] = data["frontend_conf"]["n_mels"]
-            asr_config['dither'] = data["frontend_conf"]["dither"]
+            # asr_config['dither'] = data["frontend_conf"]["dither"]
             asr_config['lfr_m'] = data["frontend_conf"]["lfr_m"]
             asr_config['lfr_n'] = data["frontend_conf"]["lfr_n"]
 
@@ -159,10 +165,14 @@ class Paraformer:
         asr_config['mean'] = mean
         asr_config['var'] = var
         asr_config['chunk_size'] = [5, 10, 5]
-        with open(f'{self.dst_path}/asr_config.json', 'w', encoding='utf-8') as f:
+
+        asr_config_path = f'{self.dst_path}/asr_config.json'
+        config_path = f'{self.dst_path}/config.json'
+
+        with open(asr_config_path, 'w', encoding='utf-8') as f:
             json.dump(asr_config, f, ensure_ascii=False, indent=4)
 
-        with open(f'{self.dst_path}/config.json', 'w', encoding='utf-8') as f:
+        with open(config_path, 'w', encoding='utf-8') as f:
             config = {
                 "encoder_model": f"encoder.mnn",
                 "decoder_model": f"decoder.mnn",
@@ -172,6 +182,8 @@ class Paraformer:
                 "memory": "low"
             }
             json.dump(config, f, ensure_ascii=False, indent=4)
+
+        print(f'{GREEN}[SAVED]{RESET} {config_path}')
 
     @spinner_run("export tokenizer")
     def export_tokenizer(self):
@@ -199,6 +211,8 @@ class Paraformer:
                 for v in vocab_list:
                     line = base64.b64encode(v.encode('utf-8')).decode("utf8") + "\n"
                     fp.write(line)
+
+        print(f'{GREEN}[SAVED]{RESET} {file_path}')
 
     def export(self):
         self.export_model()

@@ -1,0 +1,16 @@
+*.user
+### VSCode
+.vscode/
+.tags/
+
+export/paraformer/
+*build*/
+model/
+.idea/
+export/.idea/
+.nn_sdk.h.swp
+build/
+install/
+sample/*.txt
+*.gpu
+*.npu
