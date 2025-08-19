@@ -15,6 +15,7 @@
 #include <complex>
 #include <random>
 #include "utils/utils.h"
+#include "utils/timer.h"
 
 using namespace MNN::Express;
 
@@ -435,6 +436,7 @@ namespace MNN
         // std::string Asr::recognize(std::vector<float>& waveforms) {
         std::string Asr::recognize(VARP waveforms)
         {
+            Timer timer;
             size_t wave_length = waveforms->getInfo()->size;
             if (wave_length < 16 * 60 && cache_->is_final)
             {
@@ -482,6 +484,8 @@ namespace MNN
             {
                 feats = add_overlap_chunk(feats);
             }
+
+            TIMMING(timer.TimingStr("recognize"));
             return infer(feats);
         }
 
