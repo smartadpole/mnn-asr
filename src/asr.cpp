@@ -14,7 +14,7 @@
 #include <cmath>
 #include <complex>
 #include <random>
-#include "utils.h"
+#include "utils/utils.h"
 
 using namespace MNN::Express;
 

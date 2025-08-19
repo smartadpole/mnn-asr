@@ -20,4 +20,5 @@ endfunction()
 # add subdirectories to search for source files
 set(SRC_DIR
         ${ROOT_DIR}/src
+        ${ROOT_DIR}/src/utils
         )
