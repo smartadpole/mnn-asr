@@ -173,7 +173,7 @@ public:
             if (config_file.is_open()) {
                 config_ = rapid_json_wrapper::parse(config_file);
             } else {
-                std::cerr << "Unable to open config file: " << path << std::endl;
+                std::cerr << "file not exists, or unable to open config file: " << path << std::endl;
             }
             base_dir_ = base_dir(path);
         }

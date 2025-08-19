@@ -14,3 +14,4 @@ install/
 sample/*.txt
 *.gpu
 *.npu
+*.log

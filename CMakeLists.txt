@@ -15,17 +15,24 @@ endif()
 set(MNN_LOW_MEMORY ON CACHE BOOL "Open MNN_LOW_MEMORY" FORCE)
 set(MNN_SUPPORT_TRANSFORMER_FUSE ON CACHE BOOL "Open MNN_SUPPORT_TRANSFORMER_FUSE" FORCE)
 set(MNN_BUILD_AUDIO ON CACHE BOOL "Open MNN_BUILD_AUDIO" FORCE)
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/MNN)
 
 # include dir
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/
-                    ${CMAKE_CURRENT_LIST_DIR}/MNN/include/
-                    ${CMAKE_CURRENT_LIST_DIR}/MNN/3rd_party/
-                    ${CMAKE_CURRENT_LIST_DIR}/MNN/tools/audio/include/
+                    ${MNN_DIR}/include/
+#                    ${MNN_DIR}/MNN/3rd_party/
+                    ${MNN_DIR}/audio/
                     )
 
 # source files
 FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp)
 add_executable(asr_demo ${SRCS})
 
-target_link_libraries(asr_demo MNN MNN_Express MNNAudio)
+# 库目录
+target_link_directories(asr_demo PRIVATE
+        ${MNN_DIR}/lib
+)
+
+# 链接库
+target_link_libraries(asr_demo PRIVATE
+        MNN
+)

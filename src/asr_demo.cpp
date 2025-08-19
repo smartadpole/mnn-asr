@@ -9,9 +9,20 @@
 
 using namespace MNN::Transformer;
 
+#define ERROR_PRINT(x) std::cout << "" << (x) << "" << std::endl
+#define WARNING_PRINT(x) std::cout << "" << (x) << "" << std::endl
+#define INFO_PRINT(x) std::cout << "" << (x) << "" << std::endl
+
+void Help()
+{
+    ERROR_PRINT("please input: ");
+    INFO_PRINT("\tconfig.json");
+    INFO_PRINT("\ttest.wav");
+}
+
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " config.json test.wav" << std::endl;
+        Help();
         return 0;
     }
 
