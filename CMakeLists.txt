@@ -25,7 +25,9 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/include/
 
 # source files
 FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp)
-add_executable(asr_demo ${SRCS})
+add_executable(asr_demo ${SRCS}
+        src/utils.cpp
+        src/utils.h)
 
 # 库目录
 target_link_directories(asr_demo PRIVATE

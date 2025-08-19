@@ -6,12 +6,9 @@
 //
 
 #include "asr.hpp"
+#include "utils.h"
 
 using namespace MNN::Transformer;
-
-#define ERROR_PRINT(x) std::cout << "" << (x) << "" << std::endl
-#define WARNING_PRINT(x) std::cout << "" << (x) << "" << std::endl
-#define INFO_PRINT(x) std::cout << "" << (x) << "" << std::endl
 
 void Help()
 {

@@ -14,6 +14,7 @@
 #include <cmath>
 #include <complex>
 #include <random>
+#include "utils.h"
 
 using namespace MNN::Express;
 
@@ -560,46 +561,113 @@ namespace MNN
 
         void Asr::load()
         {
+            // 检查配置文件中的文件是否存在
+            std::vector<std::pair<std::string, std::string>> files_to_check = {
+                {"encoder_model", config_->encoder_model()},
+                {"decoder_model", config_->decoder_model()},
+                {"tokenizer_file", config_->tokenizer_file()}
+            };
+
+            for (const auto& [config_key, file_path] : files_to_check)
+            {
+                std::ifstream file_check(file_path);
+                if (!file_check.is_open())
+                {
+                    ERROR_PRINT( "Error: File not found for config '" + config_key + "': " + file_path );
+                    ERROR_PRINT("Please check if the file exists and has correct permissions." );
+                    return;
+                }
+                file_check.close();
+                INFO_PRINT("✓ Found file: " + file_path);
+            }
+
+            // 检查配置值是否有效
+            if (config_->feats_dims() <= 0)
+            {
+                ERROR_PRINT("Error: feats_dims not configured properly or is invalid: " + config_->feats_dims() );
+                return;
+            }
+
+            if (config_->chunk_size().empty())
+            {
+                ERROR_PRINT("Error: chunk_size not configured properly or is empty");
+                return;
+            }
+
+            if (config_->fsmn_layer() <= 0)
+            {
+                ERROR_PRINT("Error: fsmn_layer not configured properly or is invalid: " + config_->fsmn_layer());
+                return;
+            }
+
+            INFO_PRINT("✓ Configuration validation passed");
+
             feats_dims_ = config_->feats_dims();
             chunk_size_ = config_->chunk_size();
             frontend_.reset(new WavFrontend(config_));
+
+            // 创建tokenizer前再次检查文件
+            LOG_PRINT("Loading tokenizer from: " + config_->tokenizer_file() );
             tokenizer_.reset(Tokenizer::createTokenizer(config_->tokenizer_file()));
+            if (!tokenizer_)
+            {
+                ERROR_PRINT("Error: Failed to create tokenizer from: " + config_->tokenizer_file() );
+                return;
+            }
+            INFO_PRINT("✓ Tokenizer loaded successfully");
+
             {
                 ScheduleConfig config;
                 BackendConfig cpuBackendConfig;
                 config.type = MNN_FORWARD_CPU;
                 config.numThread = 4;
                 cpuBackendConfig.power = BackendConfig::Power_Low;
-                // cpuBackendConfig.memory = BackendConfig::Memory_Low;
-                // cpuBackendConfig.precision = BackendConfig::Precision_Low;
                 config.backendConfig = &cpuBackendConfig;
-                // ExecutorScope::Current()->setGlobalExecutorConfig(config.type, cpuBackendConfig, config.numThread);
 
                 runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
                 runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
                 runtime_manager_->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, 1);
-                // 1: per batch quant, 2: per tensor quant
             }
+
             modules_.resize(2);
             Module::Config module_config;
             module_config.shapeMutable = true;
             module_config.rearrange = true;
-            std::string decoder_path = "encoder.mnn";
+
             std::vector<std::string> encoder_inputs{"speech", "enc_len"};
             std::vector<std::string> encoder_outputs{"alphas", "enc", "enc_len"};
             std::vector<std::string> decoder_inputs{"enc", "enc_len", "acoustic_embeds", "acoustic_embeds_len"};
             std::vector<std::string> decoder_outputs{"logits", "sample_ids"};
+
             for (int i = 0; i < config_->fsmn_layer(); i++)
             {
                 decoder_inputs.emplace_back("in_cache_" + std::to_string(i));
                 decoder_outputs.emplace_back("out_cache_" + std::to_string(i));
             }
-            // encoder
+
+            // 加载encoder模型
+            LOG_PRINT("Loading encoder model from: " + config_->encoder_model());
             modules_[0].reset(Module::load(encoder_inputs, encoder_outputs, config_->encoder_model().c_str(),
                                            runtime_manager_, &module_config));
-            // decoder
+            if (!modules_[0])
+            {
+               ERROR_PRINT("Error: Failed to load encoder model from: " + config_->encoder_model());
+                return;
+            }
+            INFO_PRINT("✓ Encoder model loaded successfully" );
+
+            // 加载decoder模型
+            std::cout << "Loading decoder model from: " << config_->decoder_model() << std::endl;
             modules_[1].reset(Module::load(decoder_inputs, decoder_outputs, config_->decoder_model().c_str(),
                                            runtime_manager_, &module_config));
+            if (!modules_[1])
+            {
+                ERROR_PRINT("Error: Failed to load decoder model from: " + config_->decoder_model());
+                return;
+            }
+
+            INFO_PRINT("✓ Decoder model loaded successfully" );
+            INFO_PRINT("✓ All models and components loaded successfully!" );
         }
     } // namespace Transformer
 } // namespace MNN
