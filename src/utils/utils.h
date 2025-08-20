@@ -78,8 +78,10 @@ private:
 #define INFO_PRINT(x) LOG_INFO << MODULE_LINE_FUNCTION << (x)
 #ifdef NDEBUG
 #define DEBUG_PRINT(x)
+#define TIMING_DEBUG(x)
 #else
 #define DEBUG_PRINT(x) LOG_DEBUG << MODULE_LINE_FUNCTION << (x)
+#define TIMING_DEBUG(x) //LogStream(LogStream::TRACE) << MODULE_LINE_FUNCTION << (x)
 #endif
 #define LOG_PRINT(x) LOG << MODULE_LINE_FUNCTION << (x)
 

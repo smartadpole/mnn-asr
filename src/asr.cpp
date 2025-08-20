@@ -179,26 +179,22 @@ void dump_var(MNN::Express::VARP var)
 }
 
 
-MNN::Express::VARP SR::Asr::position_encoding(MNN::Express::VARP samples)
-{
-    auto ptr = (float*)samples->readMap<float>();
-    auto dims = samples->getInfo()->dim;
-    int length = dims[1];
-    int feat_dims = dims[2];
-    constexpr float neglog_timescale = -0.03301197265941284;
-    for (int i = 0; i < length; i++)
-    {
-        int offset = i + 1 + cache_->start_idx;
-        for (int j = 0; j < feat_dims / 2; j++)
-        {
-            float inv_timescale = offset * std::exp(j * neglog_timescale);
-            ptr[i * feat_dims + j] += std::sin(inv_timescale);
-            ptr[i * feat_dims + j + feat_dims / 2] += std::cos(inv_timescale);
-        }
-    }
-    cache_->start_idx += length;
-    return samples;
+MNN::Express::VARP SR::Asr::position_encoding(MNN::Express::VARP x) {
+    auto dims = x->getInfo()->dim; // [1, T, D]
+    int T = dims[1], D = dims[2];
+    auto start = MNN::Express::_Scalar<int>(1 + cache_->start_idx);
+    auto t = MNN::Express::_Range(start, start + T, 1);         // [T]
+    auto j = MNN::Express::_Range(0, D/2, 1);                   // [D/2]
+    auto times = MNN::Express::_Exp(j * MNN::Express::_Scalar<float>(-0.03301197265941284f));
+    auto inv = MNN::Express::_Reshape(t, {T,1}) * MNN::Express::_Reshape(times, {1, D/2}); // [T, D/2]
+    auto sinp = MNN::Express::_Sin(inv);
+    auto cosp = MNN::Express::_Cos(inv);
+    auto pe   = MNN::Express::_Concat({sinp, cosp}, 1);         // [T, D]
+    pe = MNN::Express::_Reshape(pe, {1, T, D});
+    cache_->start_idx += T;
+    return x + pe;
 }
+
 
 void SR::Asr::init_cache(int batch_size)
 {
@@ -418,10 +414,10 @@ std::string SR::Asr::recognize(MNN::Express::VARP waveforms)
         feats = add_overlap_chunk(feats);
     }
 
-    DEBUG_PRINT(timer.TimingStr("preprocess"));
+    TIMING_DEBUG(timer.TimingStr("preprocess"));
     std::string result = infer(feats);
 
-    DEBUG_PRINT(timer.TimingStr("recognize"));
+    TIMING_DEBUG(timer.TimingStr("recognize"));
     return result;
 }
 
@@ -450,6 +446,7 @@ void SR::Asr::online_recognize(const std::string& wav_file)
     int frame_length = speech_length / sample_rate; // second
 
     LOG_PRINT("audio length: " + std::to_string(frame_length) + "s, sample rate: " + std::to_string(sample_rate) + "Hz");
+    LOG_PRINT("chunk size: " + std::to_string(chunk_size_[0]) + ", " + std::to_string(chunk_size_[1]) + ", " + std::to_string(chunk_size_[2]));
 
     while (start < speech_length)
     {
@@ -485,7 +482,7 @@ void SR::Asr::online_recognize(const std::string& wav_file)
         // std::vector<float> chunk(speech.begin() + i * chunk_size, speech.begin() + i * chunk_size + deal_size);
         auto chunk = MNN::Express::_Slice(speech, SR::_var<int>({i * chunk_size + start}, {1}),
                                           SR::_var<int>({deal_size}, {1}));
-        DEBUG_PRINT(timer.TimingStr("preprocess"));
+        TIMING_DEBUG(timer.TimingStr("preprocess"));
         auto res = recognize(chunk);
         DEBUG_PRINT("preds: " + res);
         total += res;
@@ -598,7 +595,7 @@ void SR::Asr::load()
         decoder_inputs.emplace_back("in_cache_" + std::to_string(i));
         decoder_outputs.emplace_back("out_cache_" + std::to_string(i));
     }
-    DEBUG_PRINT(timer.TimingStr("check model"));
+    TIMING_DEBUG(timer.TimingStr("check model"));
 
     // 加载encoder模型
     LOG_PRINT("Loading encoder model from: " + config_->encoder_model());
@@ -610,7 +607,7 @@ void SR::Asr::load()
         return;
     }
     INFO_PRINT("✓ Encoder model loaded successfully");
-    DEBUG_PRINT(timer.TimingStr("load encoder model"));
+    TIMING_DEBUG(timer.TimingStr("load encoder model"));
 
     // 加载decoder模型
     std::cout << "Loading decoder model from: " << config_->decoder_model() << std::endl;
@@ -624,6 +621,6 @@ void SR::Asr::load()
 
     INFO_PRINT("✓ Decoder model loaded successfully");
     INFO_PRINT("✓ All models and components loaded successfully!");
-    DEBUG_PRINT(timer.TimingStr("load decoder model"));
+    TIMING_DEBUG(timer.TimingStr("load decoder model"));
     TIMING(timer_total.TimingStr("whole load model"));
 }
