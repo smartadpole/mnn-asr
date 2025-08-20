@@ -485,7 +485,7 @@ namespace MNN
                 feats = add_overlap_chunk(feats);
             }
 
-            TIMMING(timer.TimingStr("recognize"));
+            DEBUG_PRINT(timer.TimingStr("recognize"));
             return infer(feats);
         }
 
@@ -548,14 +548,14 @@ namespace MNN
                 }
                 // std::vector<float> chunk(speech.begin() + i * chunk_size, speech.begin() + i * chunk_size + deal_size);
                 auto chunk = _Slice(speech, _var<int>({i * chunk_size + start}, {1}), _var<int>({deal_size}, {1}));
-                INFO_PRINT(timer.TimingStr("preprocess"));
+                DEBUG_PRINT(timer.TimingStr("preprocess"));
                 auto res = recognize(chunk);
-                LOG_PRINT("preds: " + res);
+                DEBUG_PRINT("preds: " + res);
                 total += res;
                 // std::cout << res;
             }
             LOG_PRINT(total);
-            INFO_PRINT(timer_total.TimingStr("total recognize"));
+            TIMING(timer_total.TimingStr("whole recognize"));
         }
 
         Asr* Asr::createASR(const std::string& config_path)
@@ -570,6 +570,7 @@ namespace MNN
 
         void Asr::load()
         {
+            Timer timer, timer_total;
             // 检查配置文件中的文件是否存在
             std::vector<std::pair<std::string, std::string>> files_to_check = {
                 {"encoder_model", config_->encoder_model()},
@@ -653,6 +654,7 @@ namespace MNN
                 decoder_inputs.emplace_back("in_cache_" + std::to_string(i));
                 decoder_outputs.emplace_back("out_cache_" + std::to_string(i));
             }
+            DEBUG_PRINT(timer.TimingStr("check model"));
 
             // 加载encoder模型
             LOG_PRINT("Loading encoder model from: " + config_->encoder_model());
@@ -664,6 +666,7 @@ namespace MNN
                 return;
             }
             INFO_PRINT("✓ Encoder model loaded successfully" );
+            DEBUG_PRINT(timer.TimingStr("load encoder model"));
 
             // 加载decoder模型
             std::cout << "Loading decoder model from: " << config_->decoder_model() << std::endl;
@@ -677,6 +680,8 @@ namespace MNN
 
             INFO_PRINT("✓ Decoder model loaded successfully" );
             INFO_PRINT("✓ All models and components loaded successfully!" );
+            DEBUG_PRINT(timer.TimingStr("load decoder model"));
+            TIMING(timer_total.TimingStr("whole load model"));
         }
     } // namespace Transformer
 } // namespace MNN

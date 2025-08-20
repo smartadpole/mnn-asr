@@ -22,7 +22,7 @@ const std::string MODULE_NAME = "SpeechReconstruction";
 
 class LogStream {
 public:
-    enum LogLevel { ERROR, WARNING, INFO, LOG };
+    enum LogLevel { ERROR, WARNING, INFO, LOG, DEBUG, TRACE };
 
     LogStream(LogLevel level) : level_(level) {}
 
@@ -36,15 +36,24 @@ public:
         std::string message = stream_.str();
         switch(level_) {
         case ERROR:
-            std::cout << "\033[31m" << message << "\033[0m" << std::endl;
+            std::cout << "\033[31m" << "[ERROR] " << message << "\033[0m" << std::endl;
             break;
         case WARNING:
-            std::cout << "\033[33m" << message << "\033[0m" << std::endl;
+            std::cout << "\033[33m" << "[WARNING] " << message << "\033[0m" << std::endl;
             break;
         case INFO:
-            std::cout << "\033[32m" << message << "\033[0m" << std::endl;
+            std::cout << "\033[32m" << "[INFO] " << message << "\033[0m" << std::endl;
             break;
         case LOG:
+            std::cout << "[LOG] " << message << std::endl;
+            break;
+        case DEBUG:
+            std::cout << "\033[34m" << "[DEBUG] " << message << "\033[0m" << std::endl;
+            break;
+        case TRACE:
+            std::cout << "\033[35m" << "[TRACE] " << message << "\033[0m" << std::endl;
+            break;
+        default:
             std::cout << message << std::endl;
             break;
         }
@@ -59,6 +68,7 @@ private:
 #define LOG_ERROR LogStream(LogStream::ERROR)
 #define LOG_WARNING LogStream(LogStream::WARNING)
 #define LOG_INFO LogStream(LogStream::INFO)
+#define LOG_DEBUG LogStream(LogStream::DEBUG)
 #define LOG LogStream(LogStream::LOG)
 
 
@@ -66,9 +76,14 @@ private:
 #define ERROR_PRINT(x) LOG_ERROR << MODULE_LINE_FUNCTION << (x)
 #define WARNING_PRINT(x) LOG_WARNING << MODULE_LINE_FUNCTION << (x)
 #define INFO_PRINT(x) LOG_INFO << MODULE_LINE_FUNCTION << (x)
+#ifdef NDEBUG
+#define DEBUG_PRINT(x)
+#else
+#define DEBUG_PRINT(x) LOG_DEBUG << MODULE_LINE_FUNCTION << (x)
+#endif
 #define LOG_PRINT(x) LOG << MODULE_LINE_FUNCTION << (x)
 
-#define TIMMING(x) INFO_PRINT(x)
+#define TIMING(x) LogStream(LogStream::TRACE) << MODULE_LINE_FUNCTION << (x)
 
 #define PRINTF(a) (std::cout << "" << (#a) << " = " << (a) << "" << std::endl)
 #define RELEASE(p) do{if (p != nullptr) delete (p); (p) = nullptr;}while(0)
