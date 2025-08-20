@@ -20,11 +20,115 @@
 using namespace MNN::Express;
 #define USE_CPU
 
+#define DIV_UP(a, b) (((a) + (b) - 1) / (b))
+
 namespace MNN
 {
     namespace Transformer
     {
-#define DIV_UP(a, b) (((a) + (b) - 1) / (b))
+        template <typename T>
+        static inline MNN::Express::VARP _var(std::vector<T> vec, const std::vector<int>& dims)
+        {
+            return MNN::Express::_Const(vec.data(), dims, MNN::Express::NHWC, halide_type_of<T>());
+        }
+
+        static inline MNN::Express::VARP _zeros(const std::vector<int>& dims)
+        {
+            std::vector<float> data(std::accumulate(dims.begin(), dims.end(), 1, std::multiplies<int>()), 0);
+            return MNN::Express::_Const(data.data(), dims, MNN::Express::NCHW, halide_type_of<float>());
+        }
+
+        struct OnlineCache
+        {
+            int start_idx = 0;
+            bool is_final = false;
+            bool last_chunk = false;
+            std::vector<int> chunk_size;
+            MNN::Express::VARP cif_hidden;
+            MNN::Express::VARP cif_alphas;
+            MNN::Express::VARP feats;
+            std::vector<MNN::Express::VARP> decoder_fsmn;
+            std::vector<int> tokens;
+        };
+
+        class WavFrontend
+        {
+        public:
+            WavFrontend(std::shared_ptr<MNN::Transformer::AsrConfig> config) : config_(config)
+            {
+                mean_ = config->mean();
+                var_ = config->var();
+            }
+
+            ~WavFrontend() = default;
+            MNN::Express::VARP apply_lfr(MNN::Express::VARP samples);
+            MNN::Express::VARP apply_cmvn(MNN::Express::VARP samples);
+            MNN::Express::VARP extract_feat(MNN::Express::VARP samples);
+
+        private:
+            std::shared_ptr<MNN::Transformer::AsrConfig> config_;
+            std::vector<float> mean_;
+            std::vector<float> var_;
+            float dither_ = 1.0;
+            int frame_length_ms_ = 25;
+            int frame_shift_ms_ = 10;
+            int sampling_rate = 16000;
+            float preemphasis_coefficient = 0.97;
+            int num_bins_ = 80;
+            int lfr_m_ = 7;
+            int lfr_n_ = 6;
+            int feats_dims_ = 560;
+        };
+
+        MNN::Express::VARP WavFrontend::apply_cmvn(MNN::Express::VARP samples)
+        {
+            auto mean = MNN::Express::_Const(mean_.data(), {static_cast<int>(mean_.size())});
+            auto var = MNN::Express::_Const(var_.data(), {static_cast<int>(mean_.size())});
+            samples = (samples + mean) * var;
+            return samples;
+        }
+
+        MNN::Express::VARP WavFrontend::apply_lfr(MNN::Express::VARP samples)
+        {
+            auto dim = samples->getInfo()->dim;
+            int row = dim[0];
+            int padding_len = (lfr_m_ - 1) / 2;
+            int t_lfr = DIV_UP(row, lfr_n_);
+            std::vector<int> lfr_regions = {
+                // region 0
+                0, // src offset
+                1, 0, 1, // src strides
+                0, // dst offset
+                1, num_bins_, 1, // dst strides
+                1, padding_len, num_bins_, // dst sizes
+                // region 1
+                0, // src offset
+                1, num_bins_, 1, // src strides
+                padding_len * num_bins_, // dst offset
+                1, num_bins_, 1, // dst strides
+                1, lfr_m_ - padding_len, num_bins_, // dst sizes
+                // region 2
+                (lfr_n_ - padding_len) * num_bins_, // src offset
+                lfr_n_ * num_bins_, num_bins_, 1, // src strides
+                lfr_m_ * num_bins_, // dst offset
+                lfr_m_ * num_bins_, num_bins_, 1, // dst strides
+                t_lfr, lfr_m_, num_bins_ // dst sizes
+            };
+            samples = MNN::Express::_Raster({samples, samples, samples}, lfr_regions, {1, t_lfr, lfr_m_ * num_bins_});
+            return samples;
+        }
+
+        MNN::Express::VARP WavFrontend::extract_feat(MNN::Express::VARP waveforms)
+        {
+            waveforms = waveforms * MNN::Express::_Scalar<float>(32768);
+            auto feature = MNN::AUDIO::fbank(waveforms);
+            feature = apply_lfr(feature);
+            feature = apply_cmvn(feature);
+            return feature;
+        }
+    }
+}
+
 
         static void dump_impl(const float* signal, size_t size, int row = 0)
         {
@@ -83,7 +187,7 @@ namespace MNN
             dump_impl(signal.data(), signal.size(), row);
         }
 
-        void dump_var(VARP var)
+        void dump_var(MNN::Express::VARP var)
         {
             auto dims = var->getInfo()->dim;
             bool isfloat = true;
@@ -155,96 +259,9 @@ namespace MNN
             }
         }
 
-        struct OnlineCache
-        {
-            int start_idx = 0;
-            bool is_final = false;
-            bool last_chunk = false;
-            std::vector<int> chunk_size;
-            VARP cif_hidden;
-            VARP cif_alphas;
-            VARP feats;
-            std::vector<VARP> decoder_fsmn;
-            std::vector<int> tokens;
-        };
 
-        class WavFrontend
-        {
-        public:
-            WavFrontend(std::shared_ptr<AsrConfig> config) : config_(config)
-            {
-                mean_ = config->mean();
-                var_ = config->var();
-            }
 
-            ~WavFrontend() = default;
-            VARP apply_lfr(VARP samples);
-            VARP apply_cmvn(VARP samples);
-            VARP extract_feat(VARP samples);
-
-        private:
-            std::shared_ptr<AsrConfig> config_;
-            std::vector<float> mean_;
-            std::vector<float> var_;
-            float dither_ = 1.0;
-            int frame_length_ms_ = 25;
-            int frame_shift_ms_ = 10;
-            int sampling_rate = 16000;
-            float preemphasis_coefficient = 0.97;
-            int num_bins_ = 80;
-            int lfr_m_ = 7;
-            int lfr_n_ = 6;
-            int feats_dims_ = 560;
-        };
-
-        VARP WavFrontend::apply_cmvn(VARP samples)
-        {
-            auto mean = _Const(mean_.data(), {static_cast<int>(mean_.size())});
-            auto var = _Const(var_.data(), {static_cast<int>(mean_.size())});
-            samples = (samples + mean) * var;
-            return samples;
-        }
-
-        VARP WavFrontend::apply_lfr(VARP samples)
-        {
-            auto dim = samples->getInfo()->dim;
-            int row = dim[0];
-            int padding_len = (lfr_m_ - 1) / 2;
-            int t_lfr = DIV_UP(row, lfr_n_);
-            std::vector<int> lfr_regions = {
-                // region 0
-                0, // src offset
-                1, 0, 1, // src strides
-                0, // dst offset
-                1, num_bins_, 1, // dst strides
-                1, padding_len, num_bins_, // dst sizes
-                // region 1
-                0, // src offset
-                1, num_bins_, 1, // src strides
-                padding_len * num_bins_, // dst offset
-                1, num_bins_, 1, // dst strides
-                1, lfr_m_ - padding_len, num_bins_, // dst sizes
-                // region 2
-                (lfr_n_ - padding_len) * num_bins_, // src offset
-                lfr_n_ * num_bins_, num_bins_, 1, // src strides
-                lfr_m_ * num_bins_, // dst offset
-                lfr_m_ * num_bins_, num_bins_, 1, // dst strides
-                t_lfr, lfr_m_, num_bins_ // dst sizes
-            };
-            samples = _Raster({samples, samples, samples}, lfr_regions, {1, t_lfr, lfr_m_ * num_bins_});
-            return samples;
-        }
-
-        VARP WavFrontend::extract_feat(VARP waveforms)
-        {
-            waveforms = waveforms * _Scalar<float>(32768);
-            auto feature = AUDIO::fbank(waveforms);
-            feature = apply_lfr(feature);
-            feature = apply_cmvn(feature);
-            return feature;
-        }
-
-        VARP Asr::position_encoding(VARP samples)
+        MNN::Express::VARP MNN::Transformer::Asr::position_encoding(MNN::Express::VARP samples)
         {
             auto ptr = (float*)samples->readMap<float>();
             auto dims = samples->getInfo()->dim;
@@ -265,57 +282,45 @@ namespace MNN
             return samples;
         }
 
-        template <typename T>
-        static inline VARP _var(std::vector<T> vec, const std::vector<int>& dims)
-        {
-            return _Const(vec.data(), dims, NHWC, halide_type_of<T>());
-        }
-
-        static inline VARP _zeros(const std::vector<int>& dims)
-        {
-            std::vector<float> data(std::accumulate(dims.begin(), dims.end(), 1, std::multiplies<int>()), 0);
-            return _Const(data.data(), dims, NCHW, halide_type_of<float>());
-        }
-
-        void Asr::init_cache(int batch_size)
+        void MNN::Transformer::Asr::init_cache(int batch_size)
         {
             cache_.reset(new OnlineCache);
             cache_->start_idx = 0;
             cache_->is_final = false;
             cache_->last_chunk = false;
             cache_->chunk_size = chunk_size_;
-            cache_->cif_hidden = _zeros({batch_size, 1, config_->encoder_output_size()});
-            cache_->cif_alphas = _zeros({batch_size, 1});
-            cache_->feats = _zeros({batch_size, chunk_size_[0] + chunk_size_[2], feats_dims_});
+            cache_->cif_hidden = MNN::Transformer::_zeros({batch_size, 1, config_->encoder_output_size()});
+            cache_->cif_alphas = MNN::Transformer::_zeros({batch_size, 1});
+            cache_->feats = MNN::Transformer::_zeros({batch_size, chunk_size_[0] + chunk_size_[2], feats_dims_});
             for (int i = 0; i < config_->fsmn_layer(); i++)
             {
-                cache_->decoder_fsmn.emplace_back(_zeros({batch_size, config_->fsmn_dims(), config_->fsmn_lorder()}));
+                cache_->decoder_fsmn.emplace_back(MNN::Transformer::_zeros({batch_size, config_->fsmn_dims(), config_->fsmn_lorder()}));
             }
         }
 
-        VARP Asr::add_overlap_chunk(VARP feats)
+        MNN::Express::VARP MNN::Transformer::Asr::add_overlap_chunk(MNN::Express::VARP feats)
         {
             if (!cache_) return feats;
-            feats = _Concat({cache_->feats, feats}, 1);
+            feats = MNN::Express::_Concat({cache_->feats, feats}, 1);
             if (cache_->is_final)
             {
-                cache_->feats = _Slice(feats, _var<int>({0, -chunk_size_[0], 0}, {3}), _var<int>({-1, -1, -1}, {3}));
+                cache_->feats = MNN::Express::_Slice(feats, MNN::Transformer::_var<int>({0, -chunk_size_[0], 0}, {3}), MNN::Transformer::_var<int>({-1, -1, -1}, {3}));
                 if (!cache_->last_chunk)
                 {
                     int padding_length = std::accumulate(chunk_size_.begin(), chunk_size_.end(), 0) - feats->getInfo()->
                         dim[1];
-                    feats = _Pad(feats, _var<int>({0, 0, 0, padding_length, 0, 0}, {3, 2}));
+                    feats = MNN::Express::_Pad(feats, MNN::Transformer::_var<int>({0, 0, 0, padding_length, 0, 0}, {3, 2}));
                 }
             }
             else
             {
-                cache_->feats = _Slice(feats, _var<int>({0, -(chunk_size_[0] + chunk_size_[2]), 0}, {3}),
-                                       _var<int>({-1, -1, -1}, {3}));
+                                cache_->feats = MNN::Express::_Slice(feats, MNN::Transformer::_var<int>({0, -(chunk_size_[0] + chunk_size_[2]), 0}, {3}),
+                                     MNN::Transformer::_var<int>({-1, -1, -1}, {3}));
             }
             return feats;
         }
 
-        VARPS Asr::cif_search(VARP hidden, VARP alphas)
+        MNN::Express::VARPS MNN::Transformer::Asr::cif_search(MNN::Express::VARP hidden, MNN::Express::VARP alphas)
         {
             auto chunk_alpha_ptr = const_cast<float*>(alphas->readMap<float>());
             for (int i = 0; i < alphas->getInfo()->size; i++)
@@ -328,50 +333,50 @@ namespace MNN
             if (cache_->last_chunk)
             {
                 int hidden_size = hidden->getInfo()->dim[2];
-                auto tail_hidden = _zeros({1, 1, hidden_size});
-                auto tail_alphas = _var<float>({config_->tail_threshold()}, {1, 1});
-                hidden = _Concat({cache_->cif_hidden, hidden, tail_hidden}, 1);
-                alphas = _Concat({cache_->cif_alphas, alphas, tail_alphas}, 1);
+                auto tail_hidden = MNN::Transformer::_zeros({1, 1, hidden_size});
+                auto tail_alphas = MNN::Transformer::_var<float>({config_->tail_threshold()}, {1, 1});
+                hidden = MNN::Express::_Concat({cache_->cif_hidden, hidden, tail_hidden}, 1);
+                alphas = MNN::Express::_Concat({cache_->cif_alphas, alphas, tail_alphas}, 1);
             }
             else
             {
-                hidden = _Concat({cache_->cif_hidden, hidden}, 1);
-                alphas = _Concat({cache_->cif_alphas, alphas}, 1);
+                hidden = MNN::Express::_Concat({cache_->cif_hidden, hidden}, 1);
+                alphas = MNN::Express::_Concat({cache_->cif_alphas, alphas}, 1);
             }
             auto alpha_ptr = alphas->readMap<float>();
 
             auto dims = hidden->getInfo()->dim;
             int batch_size = dims[0], len_time = dims[1], hidden_size = dims[2];
-            auto frames = _zeros({hidden_size});
+            auto frames = MNN::Transformer::_zeros({hidden_size});
             float cif_threshold = config_->cif_threshold();
             float integrate = 0.f;
-            std::vector<VARP> list_frame;
+            std::vector<MNN::Express::VARP> list_frame;
             for (int t = 0; t < len_time; t++)
             {
                 float alpha = alpha_ptr[t];
-                auto hidden_t = _GatherV2(hidden, _var<int>({t}, {1}), _Scalar<int>(1));
+                auto hidden_t = MNN::Express::_GatherV2(hidden, MNN::Transformer::_var<int>({t}, {1}), MNN::Express::_Scalar<int>(1));
                 if (alpha + integrate < cif_threshold)
                 {
                     integrate += alpha;
-                    frames = frames + _Scalar<float>(alpha) * hidden_t;
+                    frames = frames + MNN::Express::_Scalar<float>(alpha) * hidden_t;
                 }
                 else
                 {
-                    frames = frames + _Scalar<float>(cif_threshold - integrate) * hidden_t;
+                    frames = frames + MNN::Express::_Scalar<float>(cif_threshold - integrate) * hidden_t;
                     list_frame.push_back(frames);
                     integrate += alpha;
                     integrate -= cif_threshold;
-                    frames = _Scalar<float>(integrate) * hidden_t;
+                    frames = MNN::Express::_Scalar<float>(integrate) * hidden_t;
                 }
             }
             // update cache
-            cache_->cif_alphas = _var<float>({integrate}, {1, 1});
-            cache_->cif_hidden = integrate > 0.f ? (frames / _Scalar<float>(integrate)) : frames;
+            cache_->cif_alphas = MNN::Transformer::_var<float>({integrate}, {1, 1});
+            cache_->cif_hidden = integrate > 0.f ? (frames / MNN::Express::_Scalar<float>(integrate)) : frames;
             return list_frame;
         }
 
 
-        std::string Asr::decode(MNN::Express::VARP logits)
+        std::string MNN::Transformer::Asr::decode(MNN::Express::VARP logits)
         {
             int token_num = logits->getInfo()->dim[1];
             auto token_ptr = _ArgMax(logits, -1)->readMap<int>();
@@ -402,9 +407,9 @@ namespace MNN
             return text;
         }
 
-        std::string Asr::infer(VARP feats)
+        std::string MNN::Transformer::Asr::infer(MNN::Express::VARP feats)
         {
-            auto enc_len = _Input({1}, NCHW, halide_type_of<int>());
+            auto enc_len = MNN::Express::_Input({1}, MNN::Express::NCHW, halide_type_of<int>());
             enc_len->writeMap<int>()[0] = feats->getInfo()->dim[1];
             auto encoder_outputs = modules_[0]->onForward({feats, enc_len});
             auto alphas = encoder_outputs[0];
@@ -415,9 +420,9 @@ namespace MNN
             {
                 return "";
             }
-            auto acoustic_embeds = _Concat(acoustic_embeds_list, 1);
+            auto acoustic_embeds = MNN::Express::_Concat(acoustic_embeds_list, 1);
             int acoustic_embeds_len = static_cast<int>(acoustic_embeds_list.size());
-            VARPS decocder_inputs{enc, enc_len, acoustic_embeds, _var<int>({acoustic_embeds_len}, {1})};
+            MNN::Express::VARPS decocder_inputs{enc, enc_len, acoustic_embeds, MNN::Transformer::_var<int>({acoustic_embeds_len}, {1})};
             for (auto fsmn : cache_->decoder_fsmn)
             {
                 decocder_inputs.push_back(fsmn);
@@ -435,7 +440,7 @@ namespace MNN
         }
 
         // std::string Asr::recognize(std::vector<float>& waveforms) {
-        std::string Asr::recognize(VARP waveforms)
+        std::string MNN::Transformer::Asr::recognize(MNN::Express::VARP waveforms)
         {
             Timer timer;
             size_t wave_length = waveforms->getInfo()->size;
@@ -448,7 +453,7 @@ namespace MNN
             auto feats = frontend_->extract_feat(waveforms);
             // std::cout << "feats time: " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - t1).count() << std::endl;
 
-            feats = feats * _Scalar<float>(std::sqrt(config_->encoder_output_size()));
+            feats = feats * MNN::Express::_Scalar<float>(std::sqrt(config_->encoder_output_size()));
             feats = position_encoding(feats);
             if (cache_->is_final)
             {
@@ -464,7 +469,7 @@ namespace MNN
                     auto feats1 = feats;
                     if (dims[1] > chunk_size_[1])
                     {
-                        feats1 = _Slice(feats, _var<int>({0, 0, 0}, {3}), _var<int>({-1, chunk_size_[1], -1}, {3}));
+                        feats1 = MNN::Express::_Slice(feats, MNN::Transformer::_var<int>({0, 0, 0}, {3}), MNN::Transformer::_var<int>({-1, chunk_size_[1], -1}, {3}));
                     }
                     auto feats_chunk1 = add_overlap_chunk(feats1);
                     auto res1 = infer(feats_chunk1);
@@ -474,7 +479,7 @@ namespace MNN
                     int start = dims[1] + chunk_size_[2] - chunk_size_[1];
                     if (start != 0)
                     {
-                        feat2 = _Slice(feats, _var<int>({0, -start, 0}, {3}), _var<int>({-1, -1, -1}, {3}));
+                        feat2 = MNN::Express::_Slice(feats, MNN::Transformer::_var<int>({0, -start, 0}, {3}), MNN::Transformer::_var<int>({-1, -1, -1}, {3}));
                     }
                     auto feats_chunk2 = add_overlap_chunk(feat2);
                     auto res2 = infer(feats_chunk2);
@@ -490,7 +495,7 @@ namespace MNN
             return infer(feats);
         }
 
-        void Asr::online_recognize(const std::string& wav_file)
+        void MNN::Transformer::Asr::online_recognize(const std::string& wav_file)
         {
             Timer timer, timer_total;
             LOG_PRINT("load wav file from: " + wav_file);
@@ -505,7 +510,7 @@ namespace MNN
     std::cout << "### wav file: " << wav_file << ", mean_val: " << mean_val << std::endl;
     auto speech_length = speech.size();
 #else
-            auto audio_file = AUDIO::load(wav_file);
+            auto audio_file = MNN::AUDIO::load(wav_file);
             auto speech = audio_file.first;
             int sample_rate = audio_file.second;
             auto speech_length = speech->getInfo()->size;
@@ -548,7 +553,7 @@ namespace MNN
                     deal_size = speech_length - i * chunk_size;
                 }
                 // std::vector<float> chunk(speech.begin() + i * chunk_size, speech.begin() + i * chunk_size + deal_size);
-                auto chunk = _Slice(speech, _var<int>({i * chunk_size + start}, {1}), _var<int>({deal_size}, {1}));
+                auto chunk = MNN::Express::_Slice(speech, MNN::Transformer::_var<int>({i * chunk_size + start}, {1}), MNN::Transformer::_var<int>({deal_size}, {1}));
                 DEBUG_PRINT(timer.TimingStr("preprocess"));
                 auto res = recognize(chunk);
                 DEBUG_PRINT("preds: " + res);
@@ -559,17 +564,17 @@ namespace MNN
             TIMING(timer_total.TimingStr("whole recognize"));
         }
 
-        Asr* Asr::createASR(const std::string& config_path)
+        MNN::Transformer::Asr* MNN::Transformer::Asr::createASR(const std::string& config_path)
         {
-            std::shared_ptr<AsrConfig> config(new AsrConfig(config_path));
+            std::shared_ptr<MNN::Transformer::AsrConfig> config(new MNN::Transformer::AsrConfig(config_path));
             return new Asr(config);
         }
 
-        Asr::~Asr()
+        MNN::Transformer::Asr::~Asr()
         {
         }
 
-        void Asr::load()
+        void MNN::Transformer::Asr::load()
         {
             Timer timer, timer_total;
             // 检查配置文件中的文件是否存在
@@ -633,22 +638,22 @@ namespace MNN
                 // if (MNN::BackendConfig::isOpenCLAvailable())
                 #ifdef USE_CPU
                 config.type = MNN_FORWARD_CPU;
-                config_backend.power = BackendConfig::Power_Low;
+                config_backend.power = MNN::BackendConfig::Power_Low;
                 #else
                 config.type = MNN_FORWARD_OPENCL;
-                config_backend.power = BackendConfig::Power_Normal;
+                config_backend.power = MNN::BackendConfig::Power_Normal;
                 #endif
                 // config.type = MNN_FORWARD_VULKAN ;
                 config.numThread = 4;
                 config.backendConfig = &config_backend;
 
-                runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
+                runtime_manager_.reset(MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
                 runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
                 runtime_manager_->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, 1);
             }
 
             modules_.resize(2);
-            Module::Config module_config;
+            MNN::Express::Module::Config module_config;
             module_config.shapeMutable = true;
             module_config.rearrange = true;
 
@@ -666,7 +671,7 @@ namespace MNN
 
             // 加载encoder模型
             LOG_PRINT("Loading encoder model from: " + config_->encoder_model());
-            modules_[0].reset(Module::load(encoder_inputs, encoder_outputs, config_->encoder_model().c_str(),
+            modules_[0].reset(MNN::Express::Module::load(encoder_inputs, encoder_outputs, config_->encoder_model().c_str(),
                                            runtime_manager_, &module_config));
             if (!modules_[0])
             {
@@ -678,7 +683,7 @@ namespace MNN
 
             // 加载decoder模型
             std::cout << "Loading decoder model from: " << config_->decoder_model() << std::endl;
-            modules_[1].reset(Module::load(decoder_inputs, decoder_outputs, config_->decoder_model().c_str(),
+            modules_[1].reset(MNN::Express::Module::load(decoder_inputs, decoder_outputs, config_->decoder_model().c_str(),
                                            runtime_manager_, &module_config));
             if (!modules_[1])
             {
@@ -691,5 +696,3 @@ namespace MNN
             DEBUG_PRINT(timer.TimingStr("load decoder model"));
             TIMING(timer_total.TimingStr("whole load model"));
         }
-    } // namespace Transformer
-} // namespace MNN
