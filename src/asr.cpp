@@ -18,6 +18,7 @@
 #include "utils/timer.h"
 
 using namespace MNN::Express;
+#define USE_CPU
 
 namespace MNN
 {
@@ -628,11 +629,18 @@ namespace MNN
 
             {
                 ScheduleConfig config;
-                BackendConfig cpuBackendConfig;
+                BackendConfig config_backend;
+                // if (MNN::BackendConfig::isOpenCLAvailable())
+                #ifdef USE_CPU
                 config.type = MNN_FORWARD_CPU;
+                config_backend.power = BackendConfig::Power_Low;
+                #else
+                config.type = MNN_FORWARD_OPENCL;
+                config_backend.power = BackendConfig::Power_Normal;
+                #endif
+                // config.type = MNN_FORWARD_VULKAN ;
                 config.numThread = 4;
-                cpuBackendConfig.power = BackendConfig::Power_Low;
-                config.backendConfig = &cpuBackendConfig;
+                config.backendConfig = &config_backend;
 
                 runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
                 runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
