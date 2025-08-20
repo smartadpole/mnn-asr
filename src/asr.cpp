@@ -491,7 +491,8 @@ namespace MNN
 
         void Asr::online_recognize(const std::string& wav_file)
         {
-            std::cout << "### wav file: " << wav_file << std::endl;
+            Timer timer, timer_total;
+            LOG_PRINT("load wav file from: " + wav_file);
             bool is_ok = false;
 #if 0
     std::vector<float> speech = read_wave(wav_file, &sample_rate, &is_ok);
@@ -510,6 +511,9 @@ namespace MNN
             auto speech_ptr = speech->readMap<int>();
             int start = 0;
             int end = speech_length - 1;
+            int frame_length = speech_length / sample_rate; // second
+
+            LOG_PRINT("audio length: " + std::to_string(frame_length) + "s, sample rate: " + std::to_string(sample_rate) + "Hz");
 
             while (start < speech_length)
             {
@@ -544,13 +548,14 @@ namespace MNN
                 }
                 // std::vector<float> chunk(speech.begin() + i * chunk_size, speech.begin() + i * chunk_size + deal_size);
                 auto chunk = _Slice(speech, _var<int>({i * chunk_size + start}, {1}), _var<int>({deal_size}, {1}));
+                INFO_PRINT(timer.TimingStr("preprocess"));
                 auto res = recognize(chunk);
-                std::cout << "preds: " << res << std::endl;
+                LOG_PRINT("preds: " + res);
                 total += res;
                 // std::cout << res;
             }
-            std::cout << std::endl;
-            std::cout << total << std::endl;
+            LOG_PRINT(total);
+            INFO_PRINT(timer_total.TimingStr("total recognize"));
         }
 
         Asr* Asr::createASR(const std::string& config_path)

@@ -14,7 +14,11 @@
 
 
 #define FUNC_NAME __FUNCTION__
-const std::string MODULE_NAME = "ASR";
+const std::string MODULE_NAME = "SpeechReconstruction";
+#define FILE (std::string(__FILE__).substr(std::string(__FILE__).find(std::string("src"))))
+#define FILE_LINE (FILE + ":" + std::to_string(__LINE__))
+#define MODULE_LINE ("[" + std::string(MODULE_NAME) + "] [" + FILE_LINE) + "] "
+#define MODULE_LINE_FUNCTION (MODULE_LINE + "[" + std::string(FUNC_NAME) + "] ")
 
 class LogStream {
 public:
@@ -32,13 +36,13 @@ public:
         std::string message = stream_.str();
         switch(level_) {
         case ERROR:
-            std::cout << "\033[31m " << message << "\033[0m" << std::endl;
+            std::cout << "\033[31m" << message << "\033[0m" << std::endl;
             break;
         case WARNING:
-            std::cout << "\033[33m " << message << "\033[0m" << std::endl;
+            std::cout << "\033[33m" << message << "\033[0m" << std::endl;
             break;
         case INFO:
-            std::cout << "\033[32m " << message << "\033[0m" << std::endl;
+            std::cout << "\033[32m" << message << "\033[0m" << std::endl;
             break;
         case LOG:
             std::cout << message << std::endl;
@@ -59,10 +63,10 @@ private:
 
 
 // print
-#define ERROR_PRINT(x) LOG_ERROR << "[" + std::string(MODULE_NAME) + "] [" << __FILE__ << ":" << __LINE__ << "] [" + std::string(FUNC_NAME) + "] " << (x)
-#define WARNING_PRINT(x) LOG_WARNING << "[" + std::string(MODULE_NAME) + "] [" << __FILE__ << ":" << __LINE__ << "] [" + std::string(FUNC_NAME) + "] " << (x)
-#define INFO_PRINT(x) LOG_INFO << "[" + std::string(MODULE_NAME) + "] [" << __FILE__ << ":" << __LINE__ << "] [" + std::string(FUNC_NAME) + "] " << (x)
-#define LOG_PRINT(x) LOG << "[" + std::string(MODULE_NAME) + "] [" << __FILE__ << ":" << __LINE__ << "] [" + std::string(FUNC_NAME) + "] " << (x)
+#define ERROR_PRINT(x) LOG_ERROR << MODULE_LINE_FUNCTION << (x)
+#define WARNING_PRINT(x) LOG_WARNING << MODULE_LINE_FUNCTION << (x)
+#define INFO_PRINT(x) LOG_INFO << MODULE_LINE_FUNCTION << (x)
+#define LOG_PRINT(x) LOG << MODULE_LINE_FUNCTION << (x)
 
 #define TIMMING(x) INFO_PRINT(x)
 
