@@ -23,12 +23,14 @@
 #include <MNN/expr/MathOp.hpp>
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 
-namespace MNN {
-namespace Transformer {
-class AsrConfig;
-class Tokenizer;
+
 class WavFrontend;
 class OnlineCache;
+
+namespace SR
+{
+class AsrConfig;
+class Tokenizer;
 
 class MNN_PUBLIC Asr {
 public:
@@ -36,16 +38,16 @@ public:
     Asr(std::shared_ptr<AsrConfig> config) : config_(config), cache_(nullptr) {}
     virtual ~Asr();
     void load();
-    std::string recognize(Express::VARP speech);
+    std::string recognize(MNN::Express::VARP speech);
     void online_recognize(const std::string& wav_file);
     void offline_recognize(const std::string& wav_file);
 private:
     void init_cache(int batch_size = 1);
-    Express::VARP add_overlap_chunk(Express::VARP feats);
-    Express::VARP position_encoding(Express::VARP sample);
-    Express::VARPS cif_search(Express::VARP enc, Express::VARP alpha);
-    std::string decode(Express::VARP logits);
-    std::string infer(Express::VARP feats);
+    MNN::Express::VARP add_overlap_chunk(MNN::Express::VARP feats);
+    MNN::Express::VARP position_encoding(MNN::Express::VARP sample);
+    MNN::Express::VARPS cif_search(MNN::Express::VARP enc, MNN::Express::VARP alpha);
+    std::string decode(MNN::Express::VARP logits);
+    std::string infer(MNN::Express::VARP feats);
 private:
     std::shared_ptr<AsrConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;
@@ -56,8 +58,6 @@ private:
     int feats_dims_;
     std::vector<int> chunk_size_;
 };
-
-}
 }
 
 #endif // ASR_hpp

@@ -8,8 +8,6 @@
 #include "asr.hpp"
 #include "utils/utils.h"
 
-using namespace MNN::Transformer;
-
 void Help()
 {
     ERROR_PRINT("please input: ");
@@ -24,7 +22,7 @@ int main(int argc, const char* argv[]) {
     }
 
     std::string config_path = argv[1];
-    std::unique_ptr<Asr> asr(Asr::createASR(config_path));
+    std::unique_ptr<SR::Asr> asr(SR::Asr::createASR(config_path));
     std::string wav_file = argv[2];
     asr->load();
     asr->online_recognize(wav_file);
