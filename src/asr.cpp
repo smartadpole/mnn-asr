@@ -17,7 +17,7 @@
 #include "tokenizer.hpp"
 #include "wavfrontend.h"
 
-#define USE_CPU
+// #define USE_CPU
 
 
 struct OnlineCache
@@ -418,8 +418,11 @@ std::string SR::Asr::recognize(MNN::Express::VARP waveforms)
         feats = add_overlap_chunk(feats);
     }
 
+    DEBUG_PRINT(timer.TimingStr("preprocess"));
+    std::string result = infer(feats);
+
     DEBUG_PRINT(timer.TimingStr("recognize"));
-    return infer(feats);
+    return result;
 }
 
 void SR::Asr::online_recognize(const std::string& wav_file)
@@ -446,8 +449,7 @@ void SR::Asr::online_recognize(const std::string& wav_file)
     int end = speech_length - 1;
     int frame_length = speech_length / sample_rate; // second
 
-    LOG_PRINT(
-        "audio length: " + std::to_string(frame_length) + "s, sample rate: " + std::to_string(sample_rate) + "Hz");
+    LOG_PRINT("audio length: " + std::to_string(frame_length) + "s, sample rate: " + std::to_string(sample_rate) + "Hz");
 
     while (start < speech_length)
     {
@@ -487,7 +489,7 @@ void SR::Asr::online_recognize(const std::string& wav_file)
         auto res = recognize(chunk);
         DEBUG_PRINT("preds: " + res);
         total += res;
-        // std::cout << res;
+        timer.TimingStr("");
     }
     LOG_PRINT(total);
     TIMING(timer_total.TimingStr("whole recognize"));
@@ -565,12 +567,12 @@ void SR::Asr::load()
         MNN::ScheduleConfig config;
         MNN::BackendConfig config_backend;
         // if (MNN::BackendConfig::isOpenCLAvailable())
-#ifdef USE_CPU
+#ifdef USE_GPU
+        config.type = MNN_FORWARD_CUDA;
+        config_backend.power = MNN::BackendConfig::Power_Normal;
+#else
         config.type = MNN_FORWARD_CPU;
         config_backend.power = MNN::BackendConfig::Power_Low;
-#else
-                config.type = MNN_FORWARD_OPENCL;
-                config_backend.power = MNN::BackendConfig::Power_Normal;
 #endif
         // config.type = MNN_FORWARD_VULKAN ;
         config.numThread = 4;

@@ -35,12 +35,18 @@ find_source_file(SRC_FILES "*.h" "*.cpp" "*.c" "*.cc" "*.hpp")
 add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 
-# 库目录
-target_link_directories(${PROJECT_NAME} PRIVATE
-        ${MNN_DIR}/lib
-)
+# 添加CUDA支持选项
+option(USE_GPU "Enable GPU(CUDA) support" OFF)
+find_library(MNN_LIB NAMES MNN PATHS ${MNN_DIR}/lib REQUIRED)
 
-# 链接库
-target_link_libraries(${PROJECT_NAME} PRIVATE
-        MNN
-)
+if(USE_GPU)
+    find_library(MNN_CUDA_MAIN NAMES MNN_Cuda_Main PATHS ${MNN_DIR}/lib REQUIRED)
+endif()
+
+target_link_directories(${PROJECT_NAME} PRIVATE ${MNN_DIR}/lib)
+target_link_libraries(${PROJECT_NAME} PRIVATE MNN)
+
+if(USE_GPU)
+    target_link_libraries(${PROJECT_NAME} PRIVATE MNN_Cuda_Main)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE USE_GPU)
+endif()
