@@ -12,7 +12,7 @@
 #include <sstream>
 #include <dirent.h>
 
-
+// #define TIME_TEST
 #define FUNC_NAME __FUNCTION__
 const std::string MODULE_NAME = "SpeechReconstruction";
 #define FILE (std::string(__FILE__).substr(std::string(__FILE__).find(std::string("src"))))
@@ -73,6 +73,14 @@ private:
 
 
 // print
+#ifdef TIME_TEST
+#define ERROR_PRINT(x)
+#define WARNING_PRINT(x)
+#define INFO_PRINT(x)
+#define DEBUG_PRINT(x)
+#define TIMING_DEBUG(x)
+#define LOG_PRINT(x)
+#else
 #define ERROR_PRINT(x) LOG_ERROR << MODULE_LINE_FUNCTION << (x)
 #define WARNING_PRINT(x) LOG_WARNING << MODULE_LINE_FUNCTION << (x)
 #define INFO_PRINT(x) LOG_INFO << MODULE_LINE_FUNCTION << (x)
@@ -84,6 +92,7 @@ private:
 #define TIMING_DEBUG(x) LogStream(LogStream::TRACE) << MODULE_LINE_FUNCTION << (x)
 #endif
 #define LOG_PRINT(x) LOG << MODULE_LINE_FUNCTION << (x)
+#endif
 
 #define TIMING(x) LogStream(LogStream::TRACE) << MODULE_LINE_FUNCTION << (x)
 
