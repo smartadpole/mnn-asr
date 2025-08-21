@@ -181,23 +181,27 @@ void dump_var(MNN::Express::VARP var)
 
 MNN::Express::VARP SR::Asr::position_encoding(MNN::Express::VARP samples)
 {
-    auto ptr = (float*)samples->readMap<float>();
-    auto dims = samples->getInfo()->dim;
-    int length = dims[1];
-    int feat_dims = dims[2];
-    constexpr float neglog_timescale = -0.03301197265941284;
-    for (int i = 0; i < length; i++)
-    {
+    // 构造位置编码，不直接修改samples内存，兼容GPU后端
+    auto info = samples->getInfo();
+    auto dims = info->dim;
+    const int length = dims[1];
+    const int feat_dims = dims[2];
+    constexpr float neglog_timescale = -0.03301197265941284f;
+
+    std::vector<float> pe(length * feat_dims, 0.0f);
+    for (int i = 0; i < length; ++i) {
         int offset = i + 1 + cache_->start_idx;
-        for (int j = 0; j < feat_dims / 2; j++)
-        {
-            float inv_timescale = offset * std::exp(j * neglog_timescale);
-            ptr[i * feat_dims + j] += std::sin(inv_timescale);
-            ptr[i * feat_dims + j + feat_dims / 2] += std::cos(inv_timescale);
+        for (int j = 0; j < feat_dims / 2; ++j) {
+            float inv_timescale = static_cast<float>(offset) * std::exp(j * neglog_timescale);
+            pe[i * feat_dims + j] = std::sin(inv_timescale);
+            pe[i * feat_dims + j + feat_dims / 2] = std::cos(inv_timescale);
         }
     }
     cache_->start_idx += length;
-    return samples;
+
+    auto fmt = info->order;
+    auto pe_var = MNN::Express::_Const(pe.data(), {1, length, feat_dims}, fmt, halide_type_of<float>());
+    return samples + pe_var;
 }
 
 
@@ -209,13 +213,12 @@ void SR::Asr::init_cache(int batch_size)
     cache_->last_chunk = false;
     cache_->chunk_size = chunk_size_;
     cache_->cif_hidden = SR::_zeros({batch_size, 1, config_->encoder_output_size()});
-    cache_->cif_alphas = SR::_zeros({batch_size, 1});
+    // 改为三维，和alphas维度一致 [B, T, 1]
+    cache_->cif_alphas = SR::_zeros({batch_size, 1, 1});
     cache_->feats = SR::_zeros({batch_size, chunk_size_[0] + chunk_size_[2], feats_dims_});
     for (int i = 0; i < config_->fsmn_layer(); i++)
     {
-        cache_->decoder_fsmn.emplace_back(SR::_zeros({
-            batch_size, config_->fsmn_dims(), config_->fsmn_lorder()
-        }));
+        cache_->decoder_fsmn.emplace_back(SR::_zeros({batch_size, config_->fsmn_dims(), config_->fsmn_lorder()}));
     }
 }
 
@@ -245,40 +248,53 @@ MNN::Express::VARP SR::Asr::add_overlap_chunk(MNN::Express::VARP feats)
 
 MNN::Express::VARPS SR::Asr::cif_search(MNN::Express::VARP hidden, MNN::Express::VARP alphas)
 {
-    auto chunk_alpha_ptr = const_cast<float*>(alphas->readMap<float>());
-    for (int i = 0; i < alphas->getInfo()->size; i++)
-    {
-        if (i < chunk_size_[0] || i >= chunk_size_[0] + chunk_size_[1])
-        {
-            chunk_alpha_ptr[i] = 0.f;
-        }
+    // 统一alphas为三维[B, T, 1]
+    auto adims = alphas->getInfo()->dim;
+    if (adims.size() == 2) {
+        alphas = MNN::Express::_Reshape(alphas, {adims[0], adims[1], 1});
+        adims = alphas->getInfo()->dim;
     }
+    // 使用mask屏蔽非中心窗口，不原地修改alphas
+    const int T = adims[1];
+    std::vector<float> mask(T, 0.0f);
+    const int left = chunk_size_[0];
+    const int center = chunk_size_[1];
+    for (int t = left; t < std::min(left + center, T); ++t) mask[t] = 1.0f;
+    auto mask_var = MNN::Express::_Const(mask.data(), {1, T, 1}, alphas->getInfo()->order, halide_type_of<float>());
+    alphas = alphas * mask_var;
+
+    auto alpha_ptr = alphas->readMap<float>();
+
+    auto dims = hidden->getInfo()->dim;
+    int len_time = dims[1], hidden_size = dims[2];
+    // 与hidden_t对齐到[1,1,H]，避免不同后端广播不一致
+    auto frames = SR::_zeros({1, 1, hidden_size});
+
     if (cache_->last_chunk)
     {
-        int hidden_size = hidden->getInfo()->dim[2];
         auto tail_hidden = SR::_zeros({1, 1, hidden_size});
-        auto tail_alphas = SR::_var<float>({config_->tail_threshold()}, {1, 1});
+        // 改为三维tail alphas [1,1,1]
+        auto tail_alphas = SR::_var<float>({config_->tail_threshold()}, {1, 1, 1});
         hidden = MNN::Express::_Concat({cache_->cif_hidden, hidden, tail_hidden}, 1);
         alphas = MNN::Express::_Concat({cache_->cif_alphas, alphas, tail_alphas}, 1);
+        alpha_ptr = alphas->readMap<float>();
+        len_time = hidden->getInfo()->dim[1];
     }
     else
     {
         hidden = MNN::Express::_Concat({cache_->cif_hidden, hidden}, 1);
         alphas = MNN::Express::_Concat({cache_->cif_alphas, alphas}, 1);
+        alpha_ptr = alphas->readMap<float>();
+        len_time = hidden->getInfo()->dim[1];
     }
-    auto alpha_ptr = alphas->readMap<float>();
 
-    auto dims = hidden->getInfo()->dim;
-    int batch_size = dims[0], len_time = dims[1], hidden_size = dims[2];
-    auto frames = SR::_zeros({hidden_size});
     float cif_threshold = config_->cif_threshold();
     float integrate = 0.f;
     std::vector<MNN::Express::VARP> list_frame;
     for (int t = 0; t < len_time; t++)
     {
         float alpha = alpha_ptr[t];
-        auto hidden_t = MNN::Express::_GatherV2(hidden, SR::_var<int>({t}, {1}),
-                                                MNN::Express::_Scalar<int>(1));
+        auto hidden_t = MNN::Express::_GatherV2(hidden, SR::_var<int>({t}, {1}), MNN::Express::_Scalar<int>(1));
         if (alpha + integrate < cif_threshold)
         {
             integrate += alpha;
@@ -293,8 +309,8 @@ MNN::Express::VARPS SR::Asr::cif_search(MNN::Express::VARP hidden, MNN::Express:
             frames = MNN::Express::_Scalar<float>(integrate) * hidden_t;
         }
     }
-    // update cache
-    cache_->cif_alphas = SR::_var<float>({integrate}, {1, 1});
+    // update cache，保持三维形状
+    cache_->cif_alphas = SR::_var<float>({integrate}, {1, 1, 1});
     cache_->cif_hidden = integrate > 0.f ? (frames / MNN::Express::_Scalar<float>(integrate)) : frames;
     return list_frame;
 }
