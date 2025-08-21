@@ -15,8 +15,10 @@ void Help()
     INFO_PRINT("\ttest.wav");
 }
 
-int main(int argc, const char* argv[]) {
-    if (argc < 2) {
+int main(int argc, const char* argv[])
+{
+    if (argc < 2)
+    {
         Help();
         return 0;
     }
@@ -25,6 +27,10 @@ int main(int argc, const char* argv[]) {
     std::unique_ptr<SR::Asr> asr(SR::Asr::createASR(config_path));
     std::string wav_file = argv[2];
     asr->load();
-    asr->online_recognize(wav_file);
+    for (int i = 0; i < 30; i++) // for test
+    {
+        asr->online_recognize(wav_file);
+    }
+
     return 0;
 }

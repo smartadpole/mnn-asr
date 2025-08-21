@@ -449,76 +449,87 @@ std::string SR::Asr::recognize(MNN::Express::VARP waveforms)
 
 void SR::Asr::online_recognize(const std::string& wav_file)
 {
-    Timer timer, timer_total;
-    LOG_PRINT("load wav file from: " + wav_file);
-    bool is_ok = false;
+    try
+    {
+        Timer timer, timer_total;
+        LOG_PRINT("load wav file from: " + wav_file);
+        bool is_ok = false;
 #if 0
-    std::vector<float> speech = read_wave(wav_file, &sample_rate, &is_ok);
-    if (!is_ok) {
-        fprintf(stderr, "Failed to read '%s'\n", wav_file.c_str());
-        return;
-    }
-    float mean_val = std::accumulate(speech.begin(), speech.end(), 0.f) / speech.size();
-    std::cout << "### wav file: " << wav_file << ", mean_val: " << mean_val << std::endl;
-    auto speech_length = speech.size();
+        std::vector<float> speech = read_wave(wav_file, &sample_rate, &is_ok);
+        if (!is_ok) {
+            fprintf(stderr, "Failed to read '%s'\n", wav_file.c_str());
+            return;
+        }
+        float mean_val = std::accumulate(speech.begin(), speech.end(), 0.f) / speech.size();
+        std::cout << "### wav file: " << wav_file << ", mean_val: " << mean_val << std::endl;
+        auto speech_length = speech.size();
 #else
-    auto audio_file = MNN::AUDIO::load(wav_file);
-    auto speech = audio_file.first;
-    int sample_rate = audio_file.second;
-    auto speech_length = speech->getInfo()->size;
-    auto speech_ptr = speech->readMap<int>();
-    int start = 0;
-    int end = speech_length - 1;
-    int frame_length = speech_length / sample_rate; // second
+        auto audio_file = MNN::AUDIO::load(wav_file);
+        auto speech = audio_file.first;
+        int sample_rate = audio_file.second;
+        auto speech_length = speech->getInfo()->size;
+        auto speech_ptr = speech->readMap<int>();
+        int start = 0;
+        int end = speech_length - 1;
+        int frame_length = speech_length / sample_rate; // second
 
-    LOG_PRINT(
-        "audio length: " + std::to_string(frame_length) + "s, sample rate: " + std::to_string(sample_rate) + "Hz");
-    LOG_PRINT(
-        "chunk size: " + std::to_string(chunk_size_[0]) + ", " + std::to_string(chunk_size_[1]) + ", " + std::to_string(
-            chunk_size_[2]));
+        LOG_PRINT(
+            "audio length: " + std::to_string(frame_length) + "s, sample rate: " + std::to_string(sample_rate) + "Hz");
+        LOG_PRINT(
+            "chunk size: " + std::to_string(chunk_size_[0]) + ", " + std::to_string(chunk_size_[1]) + ", " + std::to_string(
+                chunk_size_[2]));
 
-    while (start < speech_length)
-    {
-        if (speech_ptr[start] != 0)
+        while (start < speech_length)
         {
-            break;
+            if (speech_ptr[start] != 0)
+            {
+                break;
+            }
+            start++;
         }
-        start++;
-    }
 
-    while (end >= 0)
-    {
-        if (speech_ptr[end] != 0)
+        while (end >= 0)
         {
-            break;
+            if (speech_ptr[end] != 0)
+            {
+                break;
+            }
+            end--;
         }
-        end--;
-    }
-    speech_length = end - start + 1;
+        speech_length = end - start + 1;
 #endif
-    int chunk_size = chunk_size_[1] * 960;
-    int steps = DIV_UP(speech_length, chunk_size);
-    init_cache();
-    std::string total = "";
-    for (int i = 0; i < steps; i++)
-    {
-        int deal_size = chunk_size;
-        if (i == steps - 1)
+        int chunk_size = chunk_size_[1] * 960;
+        int steps = DIV_UP(speech_length, chunk_size);
+        init_cache();
+        std::string total = "";
+        for (int i = 0; i < steps; i++)
         {
-            cache_->is_final = true;
-            deal_size = speech_length - i * chunk_size;
+            int deal_size = chunk_size;
+            if (i == steps - 1)
+            {
+                cache_->is_final = true;
+                deal_size = speech_length - i * chunk_size;
+            }
+            // std::vector<float> chunk(speech.begin() + i * chunk_size, speech.begin() + i * chunk_size + deal_size);
+            auto chunk = MNN::Express::_Slice(speech, SR::_var<int>({i * chunk_size + start}, {1}),
+                                              SR::_var<int>({deal_size}, {1}));
+            TIMING_DEBUG(timer.TimingStr("preprocess"));
+            auto res = recognize(chunk);
+            DEBUG_PRINT("preds: " + res);
+            total += res;
+            timer.TimingStr("");
         }
-        // std::vector<float> chunk(speech.begin() + i * chunk_size, speech.begin() + i * chunk_size + deal_size);
-        auto chunk = MNN::Express::_Slice(speech, SR::_var<int>({i * chunk_size + start}, {1}),
-                                          SR::_var<int>({deal_size}, {1}));
-        TIMING_DEBUG(timer.TimingStr("preprocess"));
-        auto res = recognize(chunk);
-        DEBUG_PRINT("preds: " + res);
-        total += res;
-        timer.TimingStr("");
+        LOG_PRINT(total);
+        TIMING(timer_total.TimingStr("whole recognize"));
     }
-    LOG_PRINT(total);
-    TIMING(timer_total.TimingStr("whole recognize"));
+    catch (std::exception& ex)
+    {
+        ERROR_PRINT("Exception: " + std::string(ex.what()));
+    }
+    catch (...)
+    {
+        ERROR_PRINT("Unknown exception occurred during online recognition.");
+    }
 }
 
 SR::Asr* SR::Asr::createASR(const std::string& config_path)
