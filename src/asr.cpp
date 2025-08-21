@@ -179,20 +179,25 @@ void dump_var(MNN::Express::VARP var)
 }
 
 
-MNN::Express::VARP SR::Asr::position_encoding(MNN::Express::VARP x) {
-    auto dims = x->getInfo()->dim; // [1, T, D]
-    int T = dims[1], D = dims[2];
-    auto start = MNN::Express::_Scalar<int>(1 + cache_->start_idx);
-    auto t = MNN::Express::_Range(start, start + T, 1);         // [T]
-    auto j = MNN::Express::_Range(0, D/2, 1);                   // [D/2]
-    auto times = MNN::Express::_Exp(j * MNN::Express::_Scalar<float>(-0.03301197265941284f));
-    auto inv = MNN::Express::_Reshape(t, {T,1}) * MNN::Express::_Reshape(times, {1, D/2}); // [T, D/2]
-    auto sinp = MNN::Express::_Sin(inv);
-    auto cosp = MNN::Express::_Cos(inv);
-    auto pe   = MNN::Express::_Concat({sinp, cosp}, 1);         // [T, D]
-    pe = MNN::Express::_Reshape(pe, {1, T, D});
-    cache_->start_idx += T;
-    return x + pe;
+MNN::Express::VARP SR::Asr::position_encoding(MNN::Express::VARP samples)
+{
+    auto ptr = (float*)samples->readMap<float>();
+    auto dims = samples->getInfo()->dim;
+    int length = dims[1];
+    int feat_dims = dims[2];
+    constexpr float neglog_timescale = -0.03301197265941284;
+    for (int i = 0; i < length; i++)
+    {
+        int offset = i + 1 + cache_->start_idx;
+        for (int j = 0; j < feat_dims / 2; j++)
+        {
+            float inv_timescale = offset * std::exp(j * neglog_timescale);
+            ptr[i * feat_dims + j] += std::sin(inv_timescale);
+            ptr[i * feat_dims + j + feat_dims / 2] += std::cos(inv_timescale);
+        }
+    }
+    cache_->start_idx += length;
+    return samples;
 }
 
 
@@ -365,10 +370,14 @@ std::string SR::Asr::recognize(MNN::Express::VARP waveforms)
 {
     Timer timer;
     size_t wave_length = waveforms->getInfo()->size;
+    std::string result = "";
+
     if (wave_length < 16 * 60 && cache_->is_final)
     {
         cache_->last_chunk = true;
-        return infer(cache_->feats);
+        result = infer(cache_->feats);
+        TIMING_DEBUG(timer.TimingStr("recognize"));
+        return result;
     }
     // auto t1 = std::chrono::system_clock::now();
     auto feats = frontend_->extract_feat(waveforms);
@@ -406,7 +415,9 @@ std::string SR::Asr::recognize(MNN::Express::VARP waveforms)
             }
             auto feats_chunk2 = add_overlap_chunk(feat2);
             auto res2 = infer(feats_chunk2);
-            return res1 + res2;
+            result = res1 + res2;
+            TIMING_DEBUG(timer.TimingStr("recognize"));
+            return result;
         }
     }
     else
@@ -415,8 +426,7 @@ std::string SR::Asr::recognize(MNN::Express::VARP waveforms)
     }
 
     TIMING_DEBUG(timer.TimingStr("preprocess"));
-    std::string result = infer(feats);
-
+    result = infer(feats);
     TIMING_DEBUG(timer.TimingStr("recognize"));
     return result;
 }
@@ -445,8 +455,11 @@ void SR::Asr::online_recognize(const std::string& wav_file)
     int end = speech_length - 1;
     int frame_length = speech_length / sample_rate; // second
 
-    LOG_PRINT("audio length: " + std::to_string(frame_length) + "s, sample rate: " + std::to_string(sample_rate) + "Hz");
-    LOG_PRINT("chunk size: " + std::to_string(chunk_size_[0]) + ", " + std::to_string(chunk_size_[1]) + ", " + std::to_string(chunk_size_[2]));
+    LOG_PRINT(
+        "audio length: " + std::to_string(frame_length) + "s, sample rate: " + std::to_string(sample_rate) + "Hz");
+    LOG_PRINT(
+        "chunk size: " + std::to_string(chunk_size_[0]) + ", " + std::to_string(chunk_size_[1]) + ", " + std::to_string(
+            chunk_size_[2]));
 
     while (start < speech_length)
     {
