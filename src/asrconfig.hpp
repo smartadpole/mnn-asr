@@ -5,6 +5,9 @@
 //  ZhaodeWang
 //
 
+#ifndef ARC_CONFIG
+#define ARC_CONFIG
+
 #include "rapidjson/document.h"
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
@@ -407,6 +410,11 @@ namespace SR
             return asr_config_.value("var", std::vector<float>{});
         }
 
-        // asr model config end >
+        static bool load_from_file(const std::string& filename)
+        {
+            return true;
+        }
     };
 } // SR
+
+#endif

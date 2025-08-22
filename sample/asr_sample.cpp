@@ -6,7 +6,7 @@
 //  ZhaodeWang
 //
 
-#include "../src/mnn_asr_api.hpp"
+#include "../src/reconstruct_speech.hpp"
 #include <iostream>
 #include <string>
 #include <chrono>
@@ -27,7 +27,7 @@ void run_demo() {
     std::cout << "=== MNN ASR Demo Mode ===\n\n";
     
     // 创建配置
-    MNN_ASR::AsrConfig config;
+    asl::Config config;
     config.config_path = "../export/paraformer/config.json";  // 默认配置文件路径
     config.sample_rate = 16000;
     config.num_channels = 1;
@@ -45,7 +45,7 @@ void run_demo() {
     
     try {
         // 创建 ASR 引擎
-        auto asr_engine = MNN_ASR::AsrEngine::create(config);
+        auto asr_engine = asl::Create();
         if (!asr_engine) {
             std::cerr << "Failed to create ASR engine\n";
             return;
@@ -57,7 +57,7 @@ void run_demo() {
         std::cout << "Initializing ASR engine...\n";
         auto start_time = std::chrono::high_resolution_clock::now();
         
-        if (!asr_engine->initialize()) {
+        if (!asr_engine->Init(config)) {
             std::cerr << "Failed to initialize ASR engine\n";
             return;
         }
@@ -69,23 +69,23 @@ void run_demo() {
         
         // 显示引擎信息
         std::cout << "Engine Info:\n";
-        std::cout << asr_engine->get_engine_info() << "\n";
+        std::cout << asr_engine->GetEngineInfo() << "\n";
         
         // 测试音频文件识别
         std::string test_audio = "../resource/audio.wav";
-        if (MNN_ASR::Utils::is_audio_file_supported(test_audio)) {
+        if (asl::Utils::IsAudioFileSupported(test_audio)) {
             std::cout << "Testing audio file recognition: " << test_audio << "\n";
             
             // 获取音频文件信息
             int sample_rate, channels, duration_ms;
-            if (MNN_ASR::Utils::get_audio_info(test_audio, sample_rate, channels, duration_ms)) {
+            if (asl::Utils::GetAudioInfo(test_audio, sample_rate, channels, duration_ms)) {
                 std::cout << "  Audio info: " << sample_rate << " Hz, " << channels << " channels, " 
                          << duration_ms << " ms\n";
             }
             
             // 执行识别
             start_time = std::chrono::high_resolution_clock::now();
-            auto result = asr_engine->recognize_file(test_audio);
+            auto result = asr_engine->Recognize(test_audio);
             end_time = std::chrono::high_resolution_clock::now();
             auto recognition_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
             
@@ -107,7 +107,7 @@ void run_demo() {
         for (int i = 0; i < 3; ++i) {
             std::cout << "  Processing chunk " << (i + 1) << "...\n";
             
-            auto stream_result = asr_engine->recognize_stream(audio_chunk, 16000);
+            auto stream_result = asr_engine->Recognize(audio_chunk, 16000);
             std::cout << "    Partial result: " << stream_result.text << "\n";
             std::cout << "    Confidence: " << stream_result.confidence << "\n";
             std::cout << "    Is final: " << (stream_result.is_final ? "Yes" : "No") << "\n";
@@ -117,7 +117,7 @@ void run_demo() {
         }
         
         // 重置流式识别状态
-        asr_engine->reset_stream();
+        asr_engine->ResetStream();
         std::cout << "  Stream recognition reset\n\n";
         
         // 测试音频数据识别
@@ -125,7 +125,7 @@ void run_demo() {
         std::vector<float> test_audio_data(16000, 0.05f);  // 1秒的测试音频数据
         
         start_time = std::chrono::high_resolution_clock::now();
-        auto data_result = asr_engine->recognize_audio(test_audio_data, 16000);
+        auto data_result = asr_engine->Recognize(test_audio_data, 16000);
         end_time = std::chrono::high_resolution_clock::now();
         auto data_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
         
@@ -145,7 +145,7 @@ void run_file_recognition(const std::string& config_path, const std::string& aud
     std::cout << "=== MNN ASR File Recognition ===\n\n";
     
     // 创建配置
-    MNN_ASR::AsrConfig config;
+    asl::Config config;
     config.config_path = config_path;
     config.sample_rate = 16000;
     config.num_channels = 1;
@@ -159,7 +159,7 @@ void run_file_recognition(const std::string& config_path, const std::string& aud
     
     try {
         // 创建 ASR 引擎
-        auto asr_engine = MNN_ASR::AsrEngine::create(config);
+        auto asr_engine = asl::Create();
         if (!asr_engine) {
             std::cerr << "Failed to create ASR engine\n";
             return;
@@ -167,21 +167,21 @@ void run_file_recognition(const std::string& config_path, const std::string& aud
         
         // 初始化引擎
         std::cout << "Initializing ASR engine...\n";
-        if (!asr_engine->initialize()) {
+        if (!asr_engine->Init(config)) {
             std::cerr << "Failed to initialize ASR engine\n";
             return;
         }
         std::cout << "ASR engine initialized successfully\n\n";
         
         // 检查音频文件
-        if (!MNN_ASR::Utils::is_audio_file_supported(audio_file)) {
+        if (!asl::Utils::IsAudioFileSupported(audio_file)) {
             std::cerr << "Unsupported audio file format: " << audio_file << "\n";
             return;
         }
         
         // 获取音频文件信息
         int sample_rate, channels, duration_ms;
-        if (MNN_ASR::Utils::get_audio_info(audio_file, sample_rate, channels, duration_ms)) {
+        if (asl::Utils::GetAudioInfo(audio_file, sample_rate, channels, duration_ms)) {
             std::cout << "Audio file info:\n";
             std::cout << "  Sample rate: " << sample_rate << " Hz\n";
             std::cout << "  Channels: " << channels << "\n";
@@ -192,7 +192,7 @@ void run_file_recognition(const std::string& config_path, const std::string& aud
         std::cout << "Starting recognition...\n";
         auto start_time = std::chrono::high_resolution_clock::now();
         
-        auto result = asr_engine->recognize_file(audio_file);
+        auto result = asr_engine->Recognize(audio_file);
         
         auto end_time = std::chrono::high_resolution_clock::now();
         auto recognition_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
