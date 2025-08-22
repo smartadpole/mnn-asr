@@ -13,7 +13,7 @@ elseif(NPU STREQUAL "rk")
     add_definitions(-DUSE_NPU_RK)
 #    list(APPEND SRC_DIR ${ROOT_DIR}/src/module/device/npu_rk)
 else()
-    message(FATAL_ERROR "please set the device USE_GPU=ON or NPU=aml|rk")
+    message("not set the device USE_GPU=ON or NPU=aml|rk, use cpu by default")
 endif()
 
 # lib

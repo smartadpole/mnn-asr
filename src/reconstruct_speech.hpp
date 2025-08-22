@@ -88,7 +88,7 @@ namespace asl
 
 
     // 创建 ASR 引擎实例
-    std::shared_ptr<SpeechEngine> Create();
+    MNN_ASR_API std::shared_ptr<SpeechEngine> Create();
 
     // 工具函数
     namespace Utils

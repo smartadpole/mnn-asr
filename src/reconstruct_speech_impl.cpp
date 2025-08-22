@@ -75,7 +75,7 @@ asl::Result SpeechEngineImpl::Recognize(const std::string& audio_file_path)
     try
     {
         // 使用现有的离线识别功能
-        asr_->offline_recognize(audio_file_path);
+        asr_->online_recognize(audio_file_path);
 
         // 注意：这里需要根据实际的 ASR 实现来获取结果
         // 由于现有的实现可能没有返回识别结果，我们需要修改或扩展它

@@ -40,7 +40,6 @@ public:
     void load();
     std::string recognize(MNN::Express::VARP speech);
     void online_recognize(const std::string& wav_file);
-    void offline_recognize(const std::string& wav_file);
 private:
     void init_cache(int batch_size = 1);
     MNN::Express::VARP add_overlap_chunk(MNN::Express::VARP feats);
