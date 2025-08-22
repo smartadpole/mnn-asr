@@ -54,6 +54,7 @@ MNN::Express::VARP WavFrontend::apply_lfr(MNN::Express::VARP samples)
 
 MNN::Express::VARP WavFrontend::extract_feat(MNN::Express::VARP waveforms)
 {
+    // TODO: support different sample rate
     waveforms = waveforms * MNN::Express::_Scalar<float>(32768);
     auto feature = MNN::AUDIO::fbank(waveforms);
     feature = apply_lfr(feature);

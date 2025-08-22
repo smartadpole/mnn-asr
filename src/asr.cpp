@@ -349,6 +349,7 @@ std::string SR::Asr::decode(MNN::Express::VARP logits)
 
 std::string SR::Asr::infer(MNN::Express::VARP feats)
 {
+    Timer timer;
     auto enc_len = MNN::Express::_Input({1}, MNN::Express::NCHW, halide_type_of<int>());
     enc_len->writeMap<int>()[0] = feats->getInfo()->dim[1];
     auto encoder_outputs = modules_[0]->onForward({feats, enc_len});
@@ -377,7 +378,7 @@ std::string SR::Asr::infer(MNN::Express::VARP feats)
         cache_->decoder_fsmn[i] = decoder_outputs[2 + i];
     }
     auto text = decode(logits);
-    // printf("%s", text.c_str());
+    TIMING_DEBUG(timer.TimingStr("infer"));
     return text;
 }
 
@@ -386,64 +387,62 @@ std::string SR::Asr::recognize(MNN::Express::VARP waveforms)
 {
     Timer timer;
     size_t wave_length = waveforms->getInfo()->size;
-    std::string result = "";
+    std::string result("");
+    auto feats = cache_->feats;;
 
     if (wave_length < 16 * 60 && cache_->is_final)
     {
         cache_->last_chunk = true;
-        result = infer(cache_->feats);
-        TIMING_DEBUG(timer.TimingStr("recognize"));
-        return result;
-    }
-    // auto t1 = std::chrono::system_clock::now();
-    auto feats = frontend_->extract_feat(waveforms);
-    // std::cout << "feats time: " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - t1).count() << std::endl;
-
-    feats = feats * MNN::Express::_Scalar<float>(std::sqrt(config_->encoder_output_size()));
-    feats = position_encoding(feats);
-    if (cache_->is_final)
-    {
-        auto dims = feats->getInfo()->dim;
-        if (dims[1] + chunk_size_[2] <= chunk_size_[1])
-        {
-            cache_->last_chunk = true;
-            feats = add_overlap_chunk(feats);
-        }
-        else
-        {
-            // first chunk
-            auto feats1 = feats;
-            if (dims[1] > chunk_size_[1])
-            {
-                feats1 = MNN::Express::_Slice(feats, SR::_var<int>({0, 0, 0}, {3}),
-                                              SR::_var<int>({-1, chunk_size_[1], -1}, {3}));
-            }
-            auto feats_chunk1 = add_overlap_chunk(feats1);
-            auto res1 = infer(feats_chunk1);
-            // last chunk
-            cache_->last_chunk = true;
-            auto feat2 = feats;
-            int start = dims[1] + chunk_size_[2] - chunk_size_[1];
-            if (start != 0)
-            {
-                feat2 = MNN::Express::_Slice(feats, SR::_var<int>({0, -start, 0}, {3}),
-                                             SR::_var<int>({-1, -1, -1}, {3}));
-            }
-            auto feats_chunk2 = add_overlap_chunk(feat2);
-            auto res2 = infer(feats_chunk2);
-            result = res1 + res2;
-            TIMING_DEBUG(timer.TimingStr("recognize"));
-            return result;
-        }
+        feats = cache_->feats;
     }
     else
     {
-        feats = add_overlap_chunk(feats);
+        feats = frontend_->extract_feat(waveforms);
+        feats = feats * MNN::Express::_Scalar<float>(std::sqrt(config_->encoder_output_size()));
+        feats = position_encoding(feats);
+        if (cache_->is_final)
+        {
+            auto dims = feats->getInfo()->dim;
+            if (dims[1] + chunk_size_[2] <= chunk_size_[1])
+            {
+                cache_->last_chunk = true;
+                feats = add_overlap_chunk(feats);
+            }
+            else
+            {
+                // first chunk
+                auto feats1 = feats;
+                if (dims[1] > chunk_size_[1])
+                {
+                    feats1 = MNN::Express::_Slice(feats, SR::_var<int>({0, 0, 0}, {3}),
+                                                  SR::_var<int>({-1, chunk_size_[1], -1}, {3}));
+                }
+                auto feats_chunk1 = add_overlap_chunk(feats1);
+                auto res1 = infer(feats_chunk1);
+                // last chunk
+                cache_->last_chunk = true;
+                auto feat2 = feats;
+                int start = dims[1] + chunk_size_[2] - chunk_size_[1];
+                if (start != 0)
+                {
+                    feat2 = MNN::Express::_Slice(feats, SR::_var<int>({0, -start, 0}, {3}),
+                                                 SR::_var<int>({-1, -1, -1}, {3}));
+                }
+                auto feats_chunk2 = add_overlap_chunk(feat2);
+                TIMING_DEBUG(timer.TimingStr("preprocess"));
+                auto res2 = infer(feats_chunk2);
+                result = res1 + res2;
+                return result;
+            }
+        }
+        else
+        {
+            feats = add_overlap_chunk(feats);
+        }
     }
 
     TIMING_DEBUG(timer.TimingStr("preprocess"));
     result = infer(feats);
-    TIMING_DEBUG(timer.TimingStr("recognize"));
     return result;
 }
 
